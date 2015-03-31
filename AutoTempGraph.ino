@@ -1,15 +1,13 @@
 #include <SPI.h>
 #include "Adafruit_FRAM_SPI.h"
 #include "DHT.h"
-//#include <glcd.h>
 #include "openGLCD.h"
-#include "fonts/allFonts.h"
+#include <Bounce.h>
 
 uint8_t FRAM_CS = 45;
 uint8_t FRAM_SCK= 42;
 uint8_t FRAM_MISO = 43;
 uint8_t FRAM_MOSI = 44;
-//Or use software SPI, any pins!
 //Adafruit_FRAM_SPI fram = Adafruit_FRAM_SPI(FRAM_SCK, FRAM_MISO, FRAM_MOSI, FRAM_CS);
 Adafruit_FRAM_SPI fram = Adafruit_FRAM_SPI(FRAM_CS);
 
@@ -23,23 +21,27 @@ unsigned long pm3 = millis();
 unsigned long pm4 = millis();
 float h,t;
 float ta[99];
-//float data[5760];
-gText textArea;
-//float maxt;
-//float mint = 99;
+
+gText textArea1;
+gText textArea2;
+
 float taav;
 float tcav;
 int mmpos = 98;
 boolean cani = true;
 boolean fail = false;
 boolean lframe = true;
-
+Bounce bluebutton = Bounce( 41,5 );
+Bounce graybutton = Bounce( 42,5 ); 
+Bounce greenbutton = Bounce( 43,5 ); 
+byte xRange = 1;
+String zoomstr = "1:1";
 
 void setup() {
-  	
+
   pinMode(0, OUTPUT);
-  analogWrite(0, 20);
-  //Serial.begin(9600); 
+  analogWrite(0, 100);
+  Serial.begin(9600); 
   GLCD.Init();
   GLCD.ClearScreen();
   GLCD.SelectFont(System5x7, BLACK);
@@ -58,11 +60,13 @@ void setup() {
   pinMode(41, INPUT_PULLUP); 
   pinMode(42, INPUT_PULLUP); 
   pinMode(43, INPUT_PULLUP); 
+  pinMode(6, OUTPUT);
 
-  //GLCD.println("Starting");
-  textArea.SelectFont(System5x7, BLACK);
-  textArea.DefineArea(0, 0, 29, 63, SCROLL_UP);
-  //textArea.DefineArea(0, 0, 29, 63);
+  textArea1.SelectFont(System5x7, BLACK);
+  textArea1.DefineArea(0, 0, 29, 16, SCROLL_UP);
+  textArea2.SelectFont(Wendy3x5, BLACK);
+  textArea2.DefineArea(0, 20, 29, 63, SCROLL_UP);
+
   dht.begin();
 }
 
@@ -73,7 +77,9 @@ void loop() {
     GLCD.println("Starting...");
   }
 
-  if(pm2 < millis()){// read temp every 2 seconds
+
+
+  if(pm2 < millis()){// read temp every 2 seconds-ish
 
       //float th = dht.readHumidity();
     float tt = dht.readTemperature();
@@ -82,9 +88,7 @@ void loop() {
     if (isnan(tt)) {
       // Serial.println("Failed to read from DHT sensor!");
       fail = true;
-      textArea.CursorTo(0,0);
-      textArea.println("Fail");
-      textArea.println("Read");
+
     }
     else{
       //h = th;
@@ -92,24 +96,62 @@ void loop() {
       t = tt;
       taav+=t;
       tcav++;
-      textArea.CursorTo(0,0);
-      textArea.println("Now");
-      textArea.print(t, 1);
-      textArea.println("C");
+
     }
     pm2=millis()+2000;
   }
+  
+    if(pm1 < millis()){// heartbeat blinky and mode 0 display
+    pm1=millis()+800;
+    if(true){ //todo modes
+
+    
+      if (fail){
+        textArea1.CursorTo(0,0);
+        textArea1.println("Fail");
+        textArea1.println("Read");
+
+        textArea1.CursorTo(4,1);
+        if(cani){
+          textArea1.println("!");
+          analogWrite(0, 255);
+        }
+        else{
+          textArea1.println(" ");
+          analogWrite(0, 127);
+        }
+      }
+      else{
+        textArea1.CursorTo(0,0);
+        textArea1.println("Now");
+        textArea1.print(t, 1);
+        textArea1.println("C");
+        textArea1.CursorTo(3,0);
+        analogWrite(0, 255);
+        if(cani)
+          textArea1.println(":");
+        else
+          textArea1.println(" ");
+      }
+      cani = !cani;
+    }
+  }
+  
+
 
   if(pm4 < millis()){
-    pm4=millis()+42188;
+    pm4=millis()+42187;
+    
+    GLCD.DrawLine(0,17,29,17,WHITE);
     if (mmpos <= 97){
-      GLCD.CursorTo(7,1);
+      GLCD.CursorTo(8,1);
       GLCD.print("Working...");
     }
 
     if(fail && t == 0){
       t = fram.read8(0);
-      t = t + ((float)fram.read8(4096)/100);
+      t = (t*100) + fram.read8(4096);
+      t = (float)t/100;
     }
 
     for(int16_t i=4095; i>0; i--) {
@@ -126,21 +168,16 @@ void loop() {
       byte xm;
       if (mmpos <= 97){
         xm = map(i,4095,0,30,127);
-        GLCD.SetDot(xm,16,lframe+254);
+        GLCD.SetDot(xm,17,lframe+254);
       }
       else{
         xm = map(i,4095,0,0,127);
-        analogWrite(0, map(i,4095,0,20,255));
-        GLCD.SetDot(xm,32,lframe+254);
+        analogWrite(0, map(i,4095,0,100,255));
+        GLCD.SetDot(xm,34,lframe+254);
 
       }
       lframe = xm%2;
     }
-
-
-    //    for(int i=1; i<99; i++) {
-    //      ta[i-1] = ta[i];
-    //    }
 
     float temptemp;
     int8_t byteA; 
@@ -178,45 +215,74 @@ void loop() {
 
     //pm4=millis()+42188;
   }
+  
+  int progdot = map((pm4-millis()),0,42187,0,29);
+  GLCD.SetDot(progdot,17,((progdot+1)%2)+254);
 
-  if(pm1 < millis()){// heartbeat blinky 
-    pm1=millis()+1000;
-    if (fail){
-      textArea.CursorTo(4,1);
-      if(cani){
-        textArea.println("!");
-        analogWrite(0, 255);
-      }
-      else{
-        textArea.println(" ");
-        analogWrite(0, 127);
-      }
-    }
-    else{
-      textArea.CursorTo(3,0);
-      analogWrite(0, 255);
-      if(cani)
-        textArea.println(":");
-      else
-        textArea.println(" ");
-    }
-    cani = !cani;
-  }
-
+  buttons();
   delay(1);
 
 }
 
 void graphupdate(){
+  int zl;
+
+  switch (xRange) {
+  case 0:
+    zl=98;
+    zoomstr = "1:1";
+    break;
+
+  case 1:
+    zl=170;
+    zoomstr = "2 Hours";
+    break;
+
+  case 2:
+    zl=255;
+    zoomstr = "3 Hours";
+    break;
+
+  case 3:
+    zl=511;
+    zoomstr = "6 Hours";
+    break;
+
+  case 4:
+    zl=1023;
+    zoomstr = "1/2 day";
+    break;
+
+  case 5:
+    zl=2047;
+    zoomstr = "1 day";
+    break;
+
+  case 6:
+    zl=4095;
+    zoomstr = "2 days";
+    break;
+
+  }
 
   for(int i = 0; i < 99; i++){
-    int8_t byteAr = fram.read8(i);
-    int8_t byteBr = fram.read8((i+4096));
+    int mz = map(i,0,98,0,zl);
+    int8_t byteAr = fram.read8(mz);
+    int8_t byteBr = fram.read8((mz+4096));
     int workingR = (byteAr*100)+byteBr;
     float output = (float)workingR/100;
     byte mi = map(i,0,98,98,0);
     ta[mi] = output;
   }
+
+  //  for(int i = 0; i < 99; i++){
+  //    int8_t byteAr = fram.read8(i);
+  //    int8_t byteBr = fram.read8((i+4096));
+  //    int workingR = (byteAr*100)+byteBr;
+  //    float output = (float)workingR/100;
+  //    byte mi = map(i,0,98,98,0);
+  //    ta[mi] = output;
+  //  }
 
 }
 
@@ -229,15 +295,31 @@ void graphdisplay(){
     maxt = max(ta[i],maxt);
     mint = min(ta[i],mint);
   }
+  
+  
 
-  textArea.CursorTo(0,3);
-  textArea.println("Y max");
-  textArea.print(maxt, 2);
-  textArea.println("");
-  textArea.CursorTo(0,6);
-  textArea.println("Y min");
-  textArea.print(mint, 2);
-  textArea.println("");
+  if (true){ //todo modes
+    textArea2.CursorToXY(0,0);
+    textArea2.println("X Scale");
+    textArea2.CursorToXY(1,6);
+    textArea2.println(zoomstr);
+
+    textArea2.CursorToXY(0,14);
+    textArea2.println("Y Scale");
+    textArea2.CursorToXY(1,20);
+    textArea2.println("Max");
+    textArea2.CursorToXY(2,26);
+    textArea2.print(maxt, 2);
+    textArea2.println("c");
+
+    textArea2.CursorToXY(1,32);
+    textArea2.println("Min");
+    textArea2.CursorToXY(2,38);
+    textArea2.print(mint, 2);
+    textArea2.println("c");
+  }
+
+
 
   int dmax = maxt*100;
   int dmin = mint*100;
@@ -254,5 +336,33 @@ void graphdisplay(){
     }
 
   }
+
+}
+
+void buttons(){
+  bluebutton.update();
+  graybutton.update();
+  greenbutton.update();
+  if ( bluebutton.fallingEdge()){
+    digitalWrite(6, HIGH);
+    xRange+=6;
+    xRange = xRange%7;
+    graphupdate();
+    graphdisplay();
+  }
+
+  if ( graybutton.fallingEdge()){
+    digitalWrite(6, HIGH);
+  }
+
+  if ( greenbutton.fallingEdge()){
+    digitalWrite(6, HIGH);
+    xRange++;
+    xRange = xRange%7;
+    graphupdate();
+    graphdisplay();
+  }
+
+  digitalWrite(6, LOW);
 
 }
